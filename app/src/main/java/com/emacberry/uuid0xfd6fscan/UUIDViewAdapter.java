@@ -1,6 +1,7 @@
 package com.emacberry.uuid0xfd6fscan;
 
 import android.content.Context;
+import android.graphics.Color;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -38,6 +39,10 @@ public class UUIDViewAdapter extends RecyclerView.Adapter<UUIDViewAdapter.ViewHo
     public void onBindViewHolder(@NonNull @NotNull ViewHolder holder, int position) {
         holder.beacon = beacons.get(position);
         holder.uuidView.setText(holder.beacon.uuid);
+
+        if (ScannerService.isNear(holder.beacon.uuid)) {
+            holder.uuidView.setTextColor(Color.MAGENTA);
+        }
     }
 
     @Override
@@ -58,7 +63,7 @@ public class UUIDViewAdapter extends RecyclerView.Adapter<UUIDViewAdapter.ViewHo
         @Override
         public void onClick(View v) {
             DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
-            Toast.makeText(v.getContext(), beacon.creationDate.format(formatter), Toast.LENGTH_SHORT).show();
+            Toast.makeText(v.getContext(), beacon.lastScanned.format(formatter), Toast.LENGTH_SHORT).show();
         }
     }
 

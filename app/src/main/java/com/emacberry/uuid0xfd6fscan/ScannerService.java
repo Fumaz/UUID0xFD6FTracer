@@ -58,11 +58,10 @@ public class ScannerService extends Service implements SharedPreferences.OnShare
     protected static final String INTENT_EXTRA_STARTBOTH = "START_BOTH";
     private static final String LOG_TAG = "SCANNER";
     public static boolean isRunning = false;
-
+    protected static HashMap<String, UUIDFD6FBeacon> mContainer = new HashMap<>();
     //public static final ParcelUuid FD6X_UUID = ParcelUuid.fromString("0000fd60-0000-1000-8000-00805f9b34fb");
     //public static final ParcelUuid FD6X_MASK = ParcelUuid.fromString("11111110-1111-1111-1111-111111111111");
     public boolean mShowBtIsOffWarning = false;
-    protected HashMap<String, UUIDFD6FBeacon> mContainer = new HashMap<>();
     protected SignalStrengthCollection mSignalStrengthGroup = null;
     // /* SERVICES */
     IBinder mBinder = new LocalBinder();
@@ -126,6 +125,10 @@ public class ScannerService extends Service implements SharedPreferences.OnShare
         mPrefUseThreshold = mPrefs.getBoolean(PKEY_USETHRESHOLD, R.string.DVAL_USETHRESHOLD);
         mPrefThresholdValAsString = mPrefs.getString(PKEY_THRESHOLDVAL, R.string.DVAL_THRESHOLDVAL);
         mPrefForceGps = mPrefs.getBoolean(PKEY_FORCEGPS, R.string.DVAL_FORCEGPS);
+    }
+
+    public static boolean isNear(String address) {
+        return mContainer.containsKey(address);
     }
 
     @Override

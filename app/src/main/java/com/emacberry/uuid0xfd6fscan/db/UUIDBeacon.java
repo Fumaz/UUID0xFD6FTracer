@@ -20,15 +20,21 @@ public class UUIDBeacon {
     public int lastSignalStrength;
     @ColumnInfo(name = "is_enf")
     public boolean isENF;
-    @ColumnInfo(name = "creation_date")
-    public LocalDateTime creationDate;
+    @ColumnInfo(name = "tx_power_level")
+    public int txPowerLevel;
+    @ColumnInfo(name = "tx_power")
+    public int txPower;
+    @ColumnInfo(name = "last_scanned")
+    public LocalDateTime lastScanned;
 
-    public UUIDBeacon(String uuid, long lastTs, int lastSignalStrength, boolean isENF) {
+    public UUIDBeacon(String uuid, long lastTs, int lastSignalStrength, boolean isENF, int txPowerLevel, int txPower) {
         this.uuid = uuid;
         this.lastTs = lastTs;
         this.lastSignalStrength = lastSignalStrength;
         this.isENF = isENF;
-        this.creationDate = LocalDateTime.now();
+        this.txPowerLevel = txPowerLevel;
+        this.txPower = txPower;
+        this.lastScanned = LocalDateTime.now();
     }
 
     public static String randomMACAddress() {
@@ -50,11 +56,11 @@ public class UUIDBeacon {
     }
 
     public static UUIDBeacon random() {
-        return new UUIDBeacon(randomMACAddress(), -1, -1, false);
+        return new UUIDBeacon(randomMACAddress(), -1, -1, false, -1, -1);
     }
 
     public void insert() {
-        AppDatabase.getInstance().beaconDao().insert(this);
+        AppDatabase.getInstance().beaconDao().upsert(this);
     }
 
 }

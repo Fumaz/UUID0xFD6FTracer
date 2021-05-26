@@ -10,7 +10,9 @@ import androidx.recyclerview.widget.RecyclerView;
 import com.emacberry.uuid0xfd6fscan.db.AppDatabase;
 import com.emacberry.uuid0xfd6fscan.db.UUIDBeacon;
 
+import java.util.Comparator;
 import java.util.List;
+import java.util.stream.Collectors;
 
 public class UUIDActivity extends AppCompatActivity {
 
@@ -22,6 +24,13 @@ public class UUIDActivity extends AppCompatActivity {
         setContentView(R.layout.activity_uuid);
 
         List<UUIDBeacon> beacons = AppDatabase.getInstance().beaconDao().getAll();
+        Comparator<UUIDBeacon> comparator = Comparator.comparing(beacon -> beacon.lastScanned);
+        comparator = comparator.thenComparing(beacon -> ScannerService.isNear(beacon.uuid));
+
+        beacons = beacons.stream()
+                .sorted(comparator)
+                .collect(Collectors.toList());
+        
         RecyclerView recyclerView = findViewById(R.id.uuidsView);
 
         RecyclerView.LayoutManager layoutManager = new LinearLayoutManager(this);

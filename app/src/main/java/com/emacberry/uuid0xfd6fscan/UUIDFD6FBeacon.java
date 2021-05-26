@@ -70,7 +70,7 @@ public class UUIDFD6FBeacon {
     }
 
     public UUIDBeacon toDB() {
-        return new UUIDBeacon(addr, mLastTs, mLatestSignalStrength, isENF);
+        return new UUIDBeacon(addr, mLastTs, mLatestSignalStrength, isENF, mTxPowerLevel, mTxPower);
     }
 
 }

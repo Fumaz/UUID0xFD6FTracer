@@ -6,6 +6,7 @@ import android.content.Intent;
 import android.content.ServiceConnection;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
+import android.net.Uri;
 import android.os.AsyncTask;
 import android.os.Build;
 import android.os.Bundle;
@@ -19,6 +20,7 @@ import android.widget.Toast;
 
 import androidx.appcompat.app.ActionBar;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.content.FileProvider;
 import androidx.fragment.app.Fragment;
 import androidx.fragment.app.FragmentTransaction;
 import androidx.viewpager.widget.ViewPager;
@@ -29,6 +31,10 @@ import com.emacberry.uuid0xfd6fscan.ui.main.PlaceholderFragment;
 import com.emacberry.uuid0xfd6fscan.ui.main.SectionsPagerAdapter;
 import com.google.android.material.floatingactionbutton.FloatingActionButton;
 
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+
 public class ScannerActivity extends AppCompatActivity implements SharedPreferences.OnSharedPreferenceChangeListener {
 
     protected static final String INTENT_EXTRA_TERMINATE_APP = "TERMINATE";
@@ -37,6 +43,7 @@ public class ScannerActivity extends AppCompatActivity implements SharedPreferen
     private static final String LOG_TAG = "ACTIVITY";
     private final int MENU_START_STOP = 80;
     private final int MENU_SETTING = 90;
+    private final int MENU_EXPORT_DB = 700;
     private final int MENU_FINISH = 900;
     private final int MENU_EXIT = 1000;
     private Handler mHandler = new Handler();
@@ -118,6 +125,7 @@ public class ScannerActivity extends AppCompatActivity implements SharedPreferen
         }
         menu.add(Menu.NONE, MENU_SETTING, Menu.NONE, R.string.menu_settings);
         menu.add(Menu.NONE, MENU_START_STOP, Menu.NONE, R.string.menu_start);
+        menu.add(Menu.NONE, MENU_EXPORT_DB, Menu.NONE, "Export DB");
         menu.add(Menu.NONE, MENU_FINISH, Menu.NONE, R.string.menu_finish);
         menu.add(Menu.NONE, MENU_EXIT, Menu.NONE, R.string.menu_exit);
         return true;
@@ -577,6 +585,34 @@ public class ScannerActivity extends AppCompatActivity implements SharedPreferen
         }
     }
 
+    // https://stackoverflow.com/questions/36464615/android-fileprovider-failed-to-find-configured-root
+    private File copyFileToFilesDir(String fileName) {
+        File file;
+        String newPath = getFileStreamPath("").toString();
+        Log.d("LOG PRINT SHARE DB", "newPath found, Here is string: " + newPath);
+        String oldPath = getDatabasePath("uuids").toString();
+        Log.d("LOG PRINT SHARE DB", "oldPath found, Her is string: " + oldPath);
+        try {
+            File f = new File(newPath);
+            f.mkdirs();
+            FileInputStream fin = new FileInputStream(oldPath);
+            FileOutputStream fos = new FileOutputStream(newPath + "/" + fileName);
+            byte[] buffer = new byte[1024];
+            int len1 = 0;
+            while ((len1 = fin.read(buffer)) != -1) {
+                fos.write(buffer, 0, len1);
+            }
+            fin.close();
+            fos.close();
+            file = new File(newPath + "/" + fileName);
+            if (file.exists())
+                return file;
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return null;
+    }
+
     private class AsyncMenuHandler extends AsyncTask<MenuItem, Void, Void> {
         @Override
         protected Void doInBackground(MenuItem... menuItems) {
@@ -601,6 +637,22 @@ public class ScannerActivity extends AppCompatActivity implements SharedPreferen
                                     }
                                 }
                                 break;
+                            case MENU_EXPORT_DB: {
+                                Intent shareDB = new Intent(Intent.ACTION_SEND);
+                                Uri uri = FileProvider.getUriForFile(
+                                        ScannerActivity.this,
+                                        "com.emacberry.uuid0xfd6fscan.provider",
+                                        copyFileToFilesDir("uuids")
+                                );
+
+                                shareDB.setType("text/plain");
+                                shareDB.putExtra(Intent.EXTRA_STREAM, uri);
+                                shareDB.putExtra(Intent.EXTRA_SUBJECT, "Exporting DB...");
+                                shareDB.putExtra(Intent.EXTRA_TEXT, "Sharing exported DB...");
+
+                                startActivity(Intent.createChooser(shareDB, "Export DB"));
+                                break;
+                            }
 
                             case MENU_FINISH:
                                 finish();
