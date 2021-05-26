@@ -5,6 +5,7 @@ import androidx.room.ColumnInfo;
 import androidx.room.Entity;
 import androidx.room.PrimaryKey;
 
+import java.time.LocalDateTime;
 import java.util.concurrent.ThreadLocalRandom;
 
 @Entity(tableName = "UUIDBeacon")
@@ -19,12 +20,15 @@ public class UUIDBeacon {
     public int lastSignalStrength;
     @ColumnInfo(name = "is_enf")
     public boolean isENF;
+    @ColumnInfo(name = "creation_date")
+    public LocalDateTime creationDate;
 
     public UUIDBeacon(String uuid, long lastTs, int lastSignalStrength, boolean isENF) {
         this.uuid = uuid;
         this.lastTs = lastTs;
         this.lastSignalStrength = lastSignalStrength;
         this.isENF = isENF;
+        this.creationDate = LocalDateTime.now();
     }
 
     public static String randomMACAddress() {
@@ -50,7 +54,7 @@ public class UUIDBeacon {
     }
 
     public void insert() {
-        AppDatabase.getInstance().beaconDao().upsert(this);
+        AppDatabase.getInstance().beaconDao().insert(this);
     }
 
 }

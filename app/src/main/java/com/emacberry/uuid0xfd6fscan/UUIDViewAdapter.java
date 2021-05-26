@@ -5,6 +5,7 @@ import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.RecyclerView;
@@ -13,12 +14,13 @@ import com.emacberry.uuid0xfd6fscan.db.UUIDBeacon;
 
 import org.jetbrains.annotations.NotNull;
 
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 
 public class UUIDViewAdapter extends RecyclerView.Adapter<UUIDViewAdapter.ViewHolder> {
 
-    private List<UUIDBeacon> beacons;
-    private LayoutInflater inflater;
+    private final List<UUIDBeacon> beacons;
+    private final LayoutInflater inflater;
 
     public UUIDViewAdapter(Context context, List<UUIDBeacon> beacons) {
         this.inflater = LayoutInflater.from(context);
@@ -34,8 +36,8 @@ public class UUIDViewAdapter extends RecyclerView.Adapter<UUIDViewAdapter.ViewHo
 
     @Override
     public void onBindViewHolder(@NonNull @NotNull ViewHolder holder, int position) {
-        String address = beacons.get(position).uuid;
-        holder.uuidView.setText(address);
+        holder.beacon = beacons.get(position);
+        holder.uuidView.setText(holder.beacon.uuid);
     }
 
     @Override
@@ -43,8 +45,9 @@ public class UUIDViewAdapter extends RecyclerView.Adapter<UUIDViewAdapter.ViewHo
         return beacons.size();
     }
 
-    public class ViewHolder extends RecyclerView.ViewHolder implements View.OnClickListener {
-        TextView uuidView;
+    public static class ViewHolder extends RecyclerView.ViewHolder implements View.OnClickListener {
+        protected UUIDBeacon beacon;
+        protected TextView uuidView;
 
         ViewHolder(View itemView) {
             super(itemView);
@@ -54,7 +57,9 @@ public class UUIDViewAdapter extends RecyclerView.Adapter<UUIDViewAdapter.ViewHo
 
         @Override
         public void onClick(View v) {
-            // TODO
+            DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
+            Toast.makeText(v.getContext(), beacon.creationDate.format(formatter), Toast.LENGTH_SHORT).show();
         }
     }
+
 }
