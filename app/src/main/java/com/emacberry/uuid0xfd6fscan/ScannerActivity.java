@@ -23,27 +23,30 @@ import androidx.fragment.app.Fragment;
 import androidx.fragment.app.FragmentTransaction;
 import androidx.viewpager.widget.ViewPager;
 
+import com.emacberry.uuid0xfd6fscan.db.AppDatabase;
+import com.emacberry.uuid0xfd6fscan.db.UUIDBeacon;
 import com.emacberry.uuid0xfd6fscan.ui.main.PlaceholderFragment;
 import com.emacberry.uuid0xfd6fscan.ui.main.SectionsPagerAdapter;
 import com.google.android.material.floatingactionbutton.FloatingActionButton;
 
 public class ScannerActivity extends AppCompatActivity implements SharedPreferences.OnSharedPreferenceChangeListener {
 
+    protected static final String INTENT_EXTRA_TERMINATE_APP = "TERMINATE";
+    protected static final String INTENT_EXTRA_SERVICE_ACTION = "SERVICE-ACTON";
+    protected static final String INTENT_EXTRA_AUTOSTART = "AUTOSTART";
     private static final String LOG_TAG = "ACTIVITY";
-
-    protected static final String INTENT_EXTRA_TERMINATE_APP    = "TERMINATE";
-    protected static final String INTENT_EXTRA_SERVICE_ACTION   = "SERVICE-ACTON";
-    protected static final String INTENT_EXTRA_AUTOSTART        = "AUTOSTART";
-
+    private final int MENU_START_STOP = 80;
+    private final int MENU_SETTING = 90;
+    private final int MENU_FINISH = 900;
+    private final int MENU_EXIT = 1000;
     private Handler mHandler = new Handler();
     private ScannerService mScannerService;
     private ViewPager mViewPager;
     private FloatingActionButton mFab;
-
+    private FloatingActionButton uuidsList;
     private boolean mActivityIsCreated = false;
     private boolean mKillApp = false;
     private boolean mShowTotal = false;
-
     private ServiceConnection mConnection = new ServiceConnection() {
         @Override
         public void onServiceDisconnected(ComponentName paramComponentName) {
@@ -65,7 +68,7 @@ public class ScannerActivity extends AppCompatActivity implements SharedPreferen
                     mScannerService = b.getServerInstance();
                     mScannerService.setGuiCallback(ScannerActivity.this);
                     final int[] sizes = mScannerService.getBeaconCountByType();
-                    runOnUiThread(()-> setActiveBeaconCount(sizes[0], sizes[1], sizes[2], mScannerService.getSignalStrengthGroupInfo()));
+                    runOnUiThread(() -> setActiveBeaconCount(sizes[0], sizes[1], sizes[2], mScannerService.getSignalStrengthGroupInfo()));
                 }
             }
         }
@@ -73,27 +76,29 @@ public class ScannerActivity extends AppCompatActivity implements SharedPreferen
 
     @Override
     public void onAttachedToWindow() {
-        try{
-            if(android.os.Build.VERSION.SDK_INT < Build.VERSION_CODES.JELLY_BEAN_MR1) {
+        try {
+            if (android.os.Build.VERSION.SDK_INT < Build.VERSION_CODES.JELLY_BEAN_MR1) {
                 getWindow().addFlags(WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED);
             }
-        }catch(Throwable t){
-            Log.e(LOG_TAG, ""+t.getMessage());
+        } catch (Throwable t) {
+            Log.e(LOG_TAG, "" + t.getMessage());
         }
     }
 
     @Override
     public void onRequestPermissionsResult(int requestCode, String permissions[], int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+
         switch (requestCode) {
             case 99:
                 // If request is cancelled, the result arrays are empty.
                 if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
                     // permission was granted, yay! Do the
                     // contacts-related task you need to do.
-                    if(mScannerService != null){
-                        if(mScannerService.isScanning()){
+                    if (mScannerService != null) {
+                        if (mScannerService.isScanning()) {
                             mScannerService.checkForScanStart(15000);
-                        }else{
+                        } else {
                             mScannerService.startScan(true);
                         }
                     }
@@ -105,10 +110,6 @@ public class ScannerActivity extends AppCompatActivity implements SharedPreferen
         }
     }
 
-    private final int MENU_START_STOP = 80;
-    private final int MENU_SETTING = 90;
-    private final int MENU_FINISH = 900;
-    private final int MENU_EXIT = 1000;
     @Override
     public boolean onCreateOptionsMenu(Menu menu) {
         try {
@@ -130,59 +131,14 @@ public class ScannerActivity extends AppCompatActivity implements SharedPreferen
         }
         MenuItem startService = menu.findItem(MENU_START_STOP);
         startService.setEnabled(mScannerService != null);
-        if(mScannerService != null){
-            if(mScannerService.isScanning()){
+        if (mScannerService != null) {
+            if (mScannerService.isScanning()) {
                 startService.setTitle(R.string.menu_stop);
-            }else{
+            } else {
                 startService.setTitle(R.string.menu_start);
             }
         }
         return true;
-    }
-
-    private class AsyncMenuHandler extends AsyncTask<MenuItem, Void, Void>{
-        @Override
-        protected Void doInBackground(MenuItem... menuItems) {
-            try{
-                if(menuItems.length>0){
-                    MenuItem item = menuItems[0];
-                    if (item.isCheckable()) {
-                        // do nothing
-                    } else {
-                        switch (item.getItemId()) {
-                            case MENU_SETTING:
-                                Intent intent = new Intent(ScannerActivity.this, SettingsActivity.class);
-                                startActivity(intent);
-                                break;
-
-                            case MENU_START_STOP:
-                                if(mScannerService != null){
-                                    if(mScannerService.isScanning()) {
-                                        mScannerService.stopScan(true);
-                                    }else{
-                                        mScannerService.startScan(true);
-                                    }
-                                }
-                                break;
-
-                            case MENU_FINISH:
-                                finish();
-                                break;
-
-                            case MENU_EXIT:
-                                exitApp();
-                                break;
-
-                            default:
-                                break;
-                        }
-                    }
-                }
-            }catch(Throwable t){
-                Log.e(LOG_TAG, ""+t.getMessage());
-            }
-            return null;
-        }
     }
 
     @Override
@@ -195,7 +151,10 @@ public class ScannerActivity extends AppCompatActivity implements SharedPreferen
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        if(checkTerninate(getIntent())) {
+
+        AppDatabase.initialize(getApplicationContext());
+
+        if (checkTerninate(getIntent())) {
 
             requestPermissions(new String[]{
                     Manifest.permission.FOREGROUND_SERVICE,
@@ -238,10 +197,25 @@ public class ScannerActivity extends AppCompatActivity implements SharedPreferen
                     Log.e(LOG_TAG, "" + t.getMessage());
                 }
             });
+            uuidsList = findViewById(R.id.uuidsList);
+            uuidsList.setOnClickListener(view -> {
+                startActivity(new Intent(this, UUIDActivity.class));
+            });
+
+            // add random uuid beacons to test TODO remove
+            uuidsList.setOnLongClickListener(view -> {
+                for (int i = 0; i < 100; i++) {
+                    UUIDBeacon.random().insert();
+                }
+
+                Toast.makeText(this, "Added 100 random beacons to DB.", Toast.LENGTH_LONG).show();
+                return true;
+            });
+
             Preferences.getInstance(this).registerOnSharedPreferenceChangeListener(this);
 
             mActivityIsCreated = true;
-            switch (Preferences.getInstance(this).getString(R.string.PKEY_SCANMODE, R.string.DVAL_SCANMODE)){
+            switch (Preferences.getInstance(this).getString(R.string.PKEY_SCANMODE, R.string.DVAL_SCANMODE)) {
                 case "ENF_FRA":
                     setActiveBeaconCount(0, 0, 0, null);
                     break;
@@ -263,7 +237,7 @@ public class ScannerActivity extends AppCompatActivity implements SharedPreferen
 
     private boolean checkTerninate(Intent intent) {
         if (intent != null && intent.getBooleanExtra(INTENT_EXTRA_TERMINATE_APP, false)) {
-            try{
+            try {
                 Log.w(LOG_TAG, "TERMINATE_APP triggered via Service");
                 if (mHandler != null) {
                     mHandler.postDelayed(new Runnable() {
@@ -275,8 +249,8 @@ public class ScannerActivity extends AppCompatActivity implements SharedPreferen
                 }
                 finish();
                 return false;
-            }catch(Throwable t){
-                Log.e(LOG_TAG, ""+t.getMessage());
+            } catch (Throwable t) {
+                Log.e(LOG_TAG, "" + t.getMessage());
             }
         }
         return true;
@@ -337,7 +311,7 @@ public class ScannerActivity extends AppCompatActivity implements SharedPreferen
                 unbindService(mConnection);
             }
         } catch (Throwable t) {
-            Log.e(LOG_TAG, ""+t.getMessage());
+            Log.e(LOG_TAG, "" + t.getMessage());
         }
         try {
             super.onStop();
@@ -350,7 +324,7 @@ public class ScannerActivity extends AppCompatActivity implements SharedPreferen
     @Override
     protected void onDestroy() {
         Log.w(LOG_TAG, "onDestroy called");
-        if(mScannerService != null){
+        if (mScannerService != null) {
             mScannerService.setGuiCallback(null);
         }
         Preferences.getInstance(this).unregisterOnSharedPreferenceChangeListener(this);
@@ -387,8 +361,8 @@ public class ScannerActivity extends AppCompatActivity implements SharedPreferen
 
                 }, 250);
             }
-        }catch(Throwable t){
-            Log.e(LOG_TAG, ""+t.getMessage());
+        } catch (Throwable t) {
+            Log.e(LOG_TAG, "" + t.getMessage());
         }
     }
 
@@ -420,7 +394,7 @@ public class ScannerActivity extends AppCompatActivity implements SharedPreferen
     private void handleIntent(Intent intent) {
         if (intent != null) {
             Log.d(LOG_TAG, "start intent extras: " + intent.getExtras());
-            if(checkTerninate(intent)) {
+            if (checkTerninate(intent)) {
                 boolean wasStartFromService = intent.hasExtra(INTENT_EXTRA_SERVICE_ACTION);
                 /*if (handleEvent && intent.getBooleanExtra(STOP_LOGGING, false)) {
                     Log.i(LOG_TAG, "START OR STOP LOGGING");
@@ -477,13 +451,13 @@ public class ScannerActivity extends AppCompatActivity implements SharedPreferen
         }
     }
 
-    public void updateButtonImg(){
-        if(mScannerService != null) {
+    public void updateButtonImg() {
+        if (mScannerService != null) {
             runOnUiThread(() -> {
-                if(mFab != null) {
+                if (mFab != null) {
                     if (mScannerService.isScanning()) {
                         mFab.setImageResource(android.R.drawable.ic_media_pause);
-                    }else{
+                    } else {
                         mFab.setImageResource(android.R.drawable.ic_media_play);
                     }
                 }
@@ -492,40 +466,42 @@ public class ScannerActivity extends AppCompatActivity implements SharedPreferen
     }
 
     public void newBeconEvent(String addr, final int sizeTotal, final int sizeENF, final int sizeSCF, final SignalStrengthGroupInfo[] ranges) {
-        if(mScannerService != null){
-            if(addr !=null) {
+        if (mScannerService != null) {
+            if (addr != null) {
                 Log.v(LOG_TAG, "newBeconEvent: " + mScannerService.mContainer.get(addr));
-            }else{
+            } else {
                 Log.v(LOG_TAG, "newBeconEvent: NO SCAN RESULTS");
             }
         }
-        runOnUiThread(()-> setActiveBeaconCount(sizeTotal, sizeENF, sizeSCF, ranges));
+        runOnUiThread(() -> setActiveBeaconCount(sizeTotal, sizeENF, sizeSCF, ranges));
     }
 
-    private void setActiveBeaconCount(final int sizeTotal, final int sizeENF, final int sizeSCF, final SignalStrengthGroupInfo[] ranges){
-        if(mViewPager != null) {
+    private void setActiveBeaconCount(int sizeTotal, final int sizeENF, final int sizeSCF, final SignalStrengthGroupInfo[] ranges) {
+        sizeTotal = AppDatabase.getInstance().beaconDao().count(); // TODO Temp this
+
+        if (mViewPager != null) {
             Fragment info = ((SectionsPagerAdapter) mViewPager.getAdapter()).getItem(0);
             if (info instanceof PlaceholderFragment) {
                 boolean mShowBTWarn = mScannerService != null && mScannerService.mShowBtIsOffWarning;
                 boolean mShowLocWarn = mScannerService != null && !mScannerService.isLocationProviderEnabled();
-                if(!mShowBTWarn && !mShowLocWarn){
+                if (!mShowBTWarn && !mShowLocWarn) {
                     updateGui((PlaceholderFragment) info, sizeTotal, sizeENF, sizeSCF, ranges);
-                } else if(mShowBTWarn && mShowLocWarn){
+                } else if (mShowBTWarn && mShowLocWarn) {
                     ((PlaceholderFragment) info).setNoBluetoothInfoText(getString(R.string.act_enable_both));
-                } else if(mShowBTWarn) {
+                } else if (mShowBTWarn) {
                     ((PlaceholderFragment) info).setNoBluetoothInfoText(getString(R.string.act_enable_bt));
-                } else if(mShowLocWarn) {
+                } else if (mShowLocWarn) {
                     ((PlaceholderFragment) info).setNoBluetoothInfoText(getString(R.string.act_enable_location));
                 }
             }
-        };
+        }
     }
 
-    private void updateGui(PlaceholderFragment info, final int sizeTotal, final int sizeENF, final int sizeSCF, final SignalStrengthGroupInfo[] ranges){
+    private void updateGui(PlaceholderFragment info, final int sizeTotal, final int sizeENF, final int sizeSCF, final SignalStrengthGroupInfo[] ranges) {
         String total;
 
         // rendering TOTAL INFO BLOCK...
-        if (mShowTotal && sizeTotal >-1) {
+        if (mShowTotal && sizeTotal > -1) {
             total = String.format(getString(R.string.act_total_beacons), sizeTotal);
         } else {
             total = null;
@@ -545,7 +521,7 @@ public class ScannerActivity extends AppCompatActivity implements SharedPreferen
                     total,
                     String.format(getString(R.string.act_active_beacons), sizeENF),
                     null);
-        } else if (sizeSCF > -1){
+        } else if (sizeSCF > -1) {
             // StopCovid France mode
             info.setText(total,
                     null,
@@ -553,8 +529,8 @@ public class ScannerActivity extends AppCompatActivity implements SharedPreferen
         }
 
         // render the additional "ranges"
-        if(ranges != null){
-            switch (ranges.length){
+        if (ranges != null) {
+            switch (ranges.length) {
                 default:
                     // default:
                     // DO NOTHING - unknown number of available fields...
@@ -588,8 +564,61 @@ public class ScannerActivity extends AppCompatActivity implements SharedPreferen
                             String.format(getString(R.string.act_BAD), ranges[3].size));
                     break;
             }
-        } else{
+        } else {
             info.setRangeInfo(null, null, null, null);
+        }
+    }
+
+    @Override
+    public void onSharedPreferenceChanged(SharedPreferences sharedPreferences, String key) {
+        String sTotalKey = getString(R.string.PKEY_SHOWTOTAL);
+        if (key.equalsIgnoreCase(sTotalKey)) {
+            mShowTotal = sharedPreferences.getBoolean(sTotalKey, false);
+        }
+    }
+
+    private class AsyncMenuHandler extends AsyncTask<MenuItem, Void, Void> {
+        @Override
+        protected Void doInBackground(MenuItem... menuItems) {
+            try {
+                if (menuItems.length > 0) {
+                    MenuItem item = menuItems[0];
+                    if (item.isCheckable()) {
+                        // do nothing
+                    } else {
+                        switch (item.getItemId()) {
+                            case MENU_SETTING:
+                                Intent intent = new Intent(ScannerActivity.this, SettingsActivity.class);
+                                startActivity(intent);
+                                break;
+
+                            case MENU_START_STOP:
+                                if (mScannerService != null) {
+                                    if (mScannerService.isScanning()) {
+                                        mScannerService.stopScan(true);
+                                    } else {
+                                        mScannerService.startScan(true);
+                                    }
+                                }
+                                break;
+
+                            case MENU_FINISH:
+                                finish();
+                                break;
+
+                            case MENU_EXIT:
+                                exitApp();
+                                break;
+
+                            default:
+                                break;
+                        }
+                    }
+                }
+            } catch (Throwable t) {
+                Log.e(LOG_TAG, "" + t.getMessage());
+            }
+            return null;
         }
     }
 
@@ -611,14 +640,6 @@ public class ScannerActivity extends AppCompatActivity implements SharedPreferen
 
         @Override
         public void onTabReselected(ActionBar.Tab tab, FragmentTransaction ft) {
-        }
-    }
-
-    @Override
-    public void onSharedPreferenceChanged(SharedPreferences sharedPreferences, String key) {
-        String sTotalKey = getString(R.string.PKEY_SHOWTOTAL);
-        if(key.equalsIgnoreCase(sTotalKey)){
-            mShowTotal = sharedPreferences.getBoolean(sTotalKey, false);
         }
     }
 }

@@ -1,5 +1,7 @@
 package com.emacberry.uuid0xfd6fscan;
 
+import com.emacberry.uuid0xfd6fscan.db.UUIDBeacon;
+
 import java.util.Date;
 import java.util.HashSet;
 import java.util.TreeMap;
@@ -66,4 +68,9 @@ public class UUIDFD6FBeacon {
         b.append(new Date(mLastTs));
         return b.toString();
     }
+
+    public UUIDBeacon toDB() {
+        return new UUIDBeacon(addr, mLastTs, mLatestSignalStrength, isENF);
+    }
+
 }

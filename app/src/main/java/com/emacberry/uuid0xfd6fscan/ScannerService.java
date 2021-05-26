@@ -43,30 +43,29 @@ import java.util.TreeMap;
 
 public class ScannerService extends Service implements SharedPreferences.OnSharedPreferenceChangeListener {
 
+    public static final ParcelUuid FD6F_UUID = ParcelUuid.fromString("0000fd6f-0000-1000-8000-00805f9b34fb"); // ExposureNotificationFramework (like Germany)
+    public static final ParcelUuid FD64_UUID = ParcelUuid.fromString("0000fd64-0000-1000-8000-00805f9b34fb"); // FRANCE
     protected static final String INTENT_EXTRA_START = "START_SCAN";
     protected static final String INTENT_EXTRA_STOP = "STOP_SCAN";
     protected static final String INTENT_EXTRA_STARTBT = "START_BT";
-    protected static final String INTENT_EXTRA_STARTLOC = "START_LOC";
-    protected static final String INTENT_EXTRA_STARTBOTH = "START_BOTH";
 
     // SERVICE STUFF:
     // http://stackoverflow.com/questions/9740593/android-create-service-that-runs-when-application-stops
 
     // Running as FourgroundService!!!
     // http://developer.android.com/guide/components/services.html#Foreground
-
+    protected static final String INTENT_EXTRA_STARTLOC = "START_LOC";
+    protected static final String INTENT_EXTRA_STARTBOTH = "START_BOTH";
     private static final String LOG_TAG = "SCANNER";
     public static boolean isRunning = false;
 
-    public static final ParcelUuid FD6F_UUID = ParcelUuid.fromString("0000fd6f-0000-1000-8000-00805f9b34fb"); // ExposureNotificationFramework (like Germany)
-    public static final ParcelUuid FD64_UUID = ParcelUuid.fromString("0000fd64-0000-1000-8000-00805f9b34fb"); // FRANCE
-
     //public static final ParcelUuid FD6X_UUID = ParcelUuid.fromString("0000fd60-0000-1000-8000-00805f9b34fb");
     //public static final ParcelUuid FD6X_MASK = ParcelUuid.fromString("11111110-1111-1111-1111-111111111111");
-
+    public boolean mShowBtIsOffWarning = false;
+    protected HashMap<String, UUIDFD6FBeacon> mContainer = new HashMap<>();
+    protected SignalStrengthCollection mSignalStrengthGroup = null;
     // /* SERVICES */
     IBinder mBinder = new LocalBinder();
-
     private String PKEY_SCANMODE;
     private String PKEY_GROUPBYSIGSTRENGTH;
     private String PKEY_USETHRESHOLD;
@@ -74,7 +73,6 @@ public class ScannerService extends Service implements SharedPreferences.OnShare
     private String PKEY_GROUPMEDVAL;
     private String PKEY_THRESHOLDVAL;
     private String PKEY_FORCEGPS;
-
     private Preferences mPrefs;
     private String mPrefScanMode;
     private boolean mPrefGroupBySignalStrength;
@@ -83,6 +81,33 @@ public class ScannerService extends Service implements SharedPreferences.OnShare
     private boolean mPrefUseThreshold;
     private String mPrefThresholdValAsString;
     private boolean mPrefForceGps;
+    private BroadcastReceiver mScreenOnOffReceiver;
+    private BroadcastReceiver mBluetoothStateReceiver;
+    private BroadcastReceiver mLocationProviderStateReceiver;
+    private BluetoothAdapter mBluetoothAdapter;
+    private BluetoothLeScanner mBluetoothLeScanner;
+    private MyScanCallback mScanCallback = new ScannerService.MyScanCallback();
+    private Handler mHandler = new Handler();
+    private ScannerActivity mGuiCallback = null;
+    private LocationManager mLocationManager;
+    private boolean mScannIsRunning = false;
+    private boolean mHasScanPermission = false;
+    private AppOpsManager mAppOps;
+    private boolean mScannResultsOnStart = false;
+    private boolean mScannStopedViaGui = false;
+    private ScanChecker mScanChecker;
+    private ScanRestarter mScanRestarter = null;
+    private CharSequence mNotifyTextScanning;
+    private String mNotifyTextAddon;
+    private NotificationCompat.Builder mBuilder;
+    private KeyguardManager mKeyguardManager = null;
+    private NotificationManagerCompat mNotificationManager = null;
+    private boolean mNotifyCanBeReset = false;
+    private int mTotalSize = 0;
+
+    private static boolean isAppOppAllowed(AppOpsManager appOps, String op, String callingPackage) {
+        return appOps.noteOp(op, Binder.getCallingUid(), callingPackage) == AppOpsManager.MODE_ALLOWED;
+    }
 
     private void initPrefs() {
         PKEY_SCANMODE = getString(R.string.PKEY_SCANMODE);
@@ -169,12 +194,6 @@ public class ScannerService extends Service implements SharedPreferences.OnShare
         super.onRebind(intent);
     }
 
-    public class LocalBinder extends Binder {
-        public ScannerService getServerInstance() {
-            return ScannerService.this;
-        }
-    }
-
     public void setGuiCallback(ScannerActivity mainActivity) {
         mGuiCallback = mainActivity;
         mScanCallback.mDoReport = true;
@@ -187,18 +206,6 @@ public class ScannerService extends Service implements SharedPreferences.OnShare
         }
     }
 
-    private BroadcastReceiver mScreenOnOffReceiver;
-    private BroadcastReceiver mBluetoothStateReceiver;
-    private BroadcastReceiver mLocationProviderStateReceiver;
-
-
-    private BluetoothAdapter mBluetoothAdapter;
-    private BluetoothLeScanner mBluetoothLeScanner;
-    private MyScanCallback mScanCallback = new ScannerService.MyScanCallback();
-    private Handler mHandler = new Handler();
-    private ScannerActivity mGuiCallback = null;
-    public boolean mShowBtIsOffWarning = false;
-
     private boolean isAirplaneMode() {
         try {
             return Settings.System.getInt(getContentResolver(), Settings.Global.AIRPLANE_MODE_ON, 0) != 0;
@@ -208,16 +215,15 @@ public class ScannerService extends Service implements SharedPreferences.OnShare
         }
     }
 
-    private LocationManager mLocationManager;
     public boolean isLocationProviderEnabled() {
         try {
-            if(mLocationManager == null){
-                mLocationManager = (LocationManager) getSystemService(Context. LOCATION_SERVICE );
+            if (mLocationManager == null) {
+                mLocationManager = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
             }
             boolean loc_enabled = false;
             try {
                 loc_enabled = mLocationManager.isProviderEnabled(LocationManager.GPS_PROVIDER);
-                if(!mPrefForceGps) {
+                if (!mPrefForceGps) {
                     if (!loc_enabled) {
                         loc_enabled = mLocationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER);
                     }
@@ -229,7 +235,7 @@ public class ScannerService extends Service implements SharedPreferences.OnShare
                     }
                 }
             } catch (Exception e) {
-                e.printStackTrace() ;
+                e.printStackTrace();
             }
             return loc_enabled;
         } catch (Throwable t) {
@@ -452,11 +458,8 @@ public class ScannerService extends Service implements SharedPreferences.OnShare
         }
     }
 
-    private boolean mScannIsRunning = false;
-    private boolean mHasScanPermission = false;
-
     public void startScan(boolean viaGui) {
-        if(isLocationProviderEnabled()) {
+        if (isLocationProviderEnabled()) {
             if (viaGui) {
                 mScannStopedViaGui = false;
             }
@@ -549,7 +552,7 @@ public class ScannerService extends Service implements SharedPreferences.OnShare
                 // no permission...? start activity and request START again
                 updateNotification();
             }
-        }else{
+        } else {
             Log.w(LOG_TAG, "Scanner was not started cause GPS ist OFF");
         }
     }
@@ -602,7 +605,7 @@ public class ScannerService extends Service implements SharedPreferences.OnShare
         ssb.setScanMode(ScanSettings.SCAN_MODE_LOW_POWER);
 
 
-        if(Build.VERSION.SDK_INT >= Build.VERSION_CODES.M){
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             /****************************
              * CALLBACK_TYPE
              ****************************/
@@ -724,8 +727,6 @@ public class ScannerService extends Service implements SharedPreferences.OnShare
         }
     }
 
-    private AppOpsManager mAppOps;
-
     private boolean checkScanPermissions() {
         if (mAppOps == null) {
             mAppOps = getSystemService(AppOpsManager.class);
@@ -745,21 +746,440 @@ public class ScannerService extends Service implements SharedPreferences.OnShare
         }
     }
 
-    private static boolean isAppOppAllowed(AppOpsManager appOps, String op, String callingPackage) {
-        return appOps.noteOp(op, Binder.getCallingUid(), callingPackage) == AppOpsManager.MODE_ALLOWED;
-    }
-
-    private boolean mScannResultsOnStart = false;
-    private boolean mScannStopedViaGui = false;
-
-    private ScanChecker mScanChecker;
-
     public synchronized void checkForScanStart(long delayInMs) {
         if (mScanChecker != null) {
             mScanChecker.reset(delayInMs);
         } else {
             mScanChecker = new ScanChecker(delayInMs);
             mScanChecker.start();
+        }
+    }
+
+    private void triggerRestartScanCauseOfPrefChange() {
+        if (mScanRestarter == null) {
+            mScanRestarter = new ScanRestarter();
+            mScanRestarter.start();
+        }
+        if (mScanRestarter != null) {
+            mScanRestarter.iStartTime = System.currentTimeMillis();
+        }
+    }
+
+    private NotificationCompat.Builder getNotificationBuilder() {
+        // http://developer.android.com/guide/topics/ui/notifiers/notifications.html
+        if (mNotifyTextScanning == null) {
+            mNotifyTextScanning = getText(R.string.app_service_msgScan1);
+            mNotifyTextAddon = getString(R.string.app_service_msgScan2);
+        }
+
+        String channelId = NotificationHelper.getBaseNotificationChannelId(this);
+        NotificationCompat.Builder builder = new NotificationCompat.Builder(this, channelId);
+        builder.setContentTitle(getText(R.string.app_service_title));
+
+        builder.setVisibility(NotificationCompat.VISIBILITY_PUBLIC);
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            builder.setChannelId(channelId);
+        }
+        if (android.os.Build.VERSION.SDK_INT >= 21) {
+            builder.setSmallIcon(R.drawable.ic_app_notify72);
+        } else {
+            builder.setSmallIcon(R.mipmap.ic_launcher);
+        }
+        Intent intent = new Intent(this, ScannerActivity.class);
+        intent.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        intent.putExtra(ScannerActivity.INTENT_EXTRA_SERVICE_ACTION, true);
+        builder.setContentIntent(PendingIntent.getActivity(this, intent.hashCode(), intent, PendingIntent.FLAG_CANCEL_CURRENT));
+
+        boolean mShowLocWarn = !isLocationProviderEnabled();
+
+        if (!mShowBtIsOffWarning && !mShowLocWarn) {
+            if (mScannIsRunning) {
+                builder.setContentText(mNotifyTextScanning);
+                builder.addAction(-1, this.getString(R.string.menu_stop_notify_action), getServiceIntent(INTENT_EXTRA_STOP));
+            } else {
+                if (checkScanPermissions() && mHasScanPermission) {
+                    builder.setContentText(getString(R.string.app_service_msgOff));
+                    // Check 'start scan' from notification action can cause no scan results after
+                    //  the start / this will not happen, if scan is triggered via Activity (no clue yet why)
+                    // logcat reports:
+                    // E/BluetoothUtils: Permission denial: Need ACCESS_FINE_LOCATION permission to get scan results
+                    //
+                    // wtf?!
+                    builder.addAction(-1, this.getString(R.string.menu_start_notify_action), getServiceIntent(INTENT_EXTRA_START));
+                } else {
+                    builder.setContentText(getText(R.string.app_service_msgOffNoPermissions));
+                }
+            }
+        } else if (mShowBtIsOffWarning && mShowLocWarn) {
+            builder.setContentText(getString(R.string.app_service_msgNoBoth));
+            builder.addAction(-1, this.getString(R.string.menu_start_both_action), getServiceIntent(INTENT_EXTRA_STARTBOTH));
+        } else if (mShowBtIsOffWarning) {
+            builder.setContentText(getString(R.string.app_service_msgNoBt));
+            builder.addAction(-1, this.getString(R.string.menu_start_bt_action), getServiceIntent(INTENT_EXTRA_STARTBT));
+        } else if (mShowLocWarn) {
+            builder.setContentText(getString(R.string.app_service_msgNoLocation));
+            builder.addAction(-1, this.getString(R.string.menu_start_location_action), getServiceIntent(INTENT_EXTRA_STARTLOC));
+        }
+
+        if (android.os.Build.VERSION.SDK_INT > Build.VERSION_CODES.M) {
+            builder.addAction(R.drawable.ic_outline_exit_to_app_24px, this.getString(R.string.menu_exit_notify_action), getTerminateAppIntent(ScannerActivity.INTENT_EXTRA_TERMINATE_APP));
+        } else {
+            builder.addAction(R.drawable.ic_outline_exit_to_app_24px_api20, this.getString(R.string.menu_exit_notify_action), getTerminateAppIntent(ScannerActivity.INTENT_EXTRA_TERMINATE_APP));
+        }
+        builder.setColor(ContextCompat.getColor(this, R.color.notification_action));
+        return builder;
+    }
+
+    private void showNotification() {
+        try {
+            mBuilder = getNotificationBuilder();
+            startForeground(R.id.notify_backservive, mBuilder.build());
+        } catch (SecurityException e) {
+            e.printStackTrace();
+        } catch (Throwable t) {
+            t.printStackTrace();
+        }
+    }
+
+    private PendingIntent getAppIntent(String extra) {
+        Intent intent = new Intent(this, ScannerActivity.class);
+        intent.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        if (extra != null) {
+            intent.putExtra(extra, true);
+        }
+        return PendingIntent.getActivity(this, intent.hashCode(), intent, PendingIntent.FLAG_CANCEL_CURRENT);
+    }
+
+    private PendingIntent getServiceIntent(String extra) {
+        Intent intent = new Intent(this, ScannerService.class);
+        if (extra != null) {
+            intent.putExtra(extra, true);
+        }
+        return PendingIntent.getService(this, intent.hashCode(), intent, PendingIntent.FLAG_UPDATE_CURRENT);
+    }
+
+    private PendingIntent getTerminateAppIntent(String extra) {
+        Intent intent = new Intent(this, ScannerActivity.class);
+        intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        if (extra != null) {
+            intent.putExtra(extra, true);
+        }
+        return PendingIntent.getActivity(this, intent.hashCode(), intent, PendingIntent.FLAG_CANCEL_CURRENT);
+    }
+
+    public void updateNotification() {
+        try {
+            mBuilder = getNotificationBuilder();
+            if (mNotificationManager == null) {
+                mNotificationManager = NotificationManagerCompat.from(this);
+            }
+            mBuilder.setVisibility(NotificationCompat.VISIBILITY_PUBLIC);
+            mBuilder.setShowWhen(true);
+            mBuilder.setWhen(System.currentTimeMillis());
+            mNotificationManager.notify(R.id.notify_backservive, mBuilder.build());
+        } catch (Throwable t) {
+            Log.d(LOG_TAG, "" + t.getMessage());
+        }
+    }
+
+    private void updateNotificationText(boolean force, int size) {
+        if (mKeyguardManager == null) {
+            mKeyguardManager = (KeyguardManager) getSystemService(Context.KEYGUARD_SERVICE);
+        }
+        boolean notify = false;
+        if (mBuilder != null) {
+            boolean mShowLocWarn = !isLocationProviderEnabled();
+            if (!mShowBtIsOffWarning && !mShowLocWarn) {
+                // if we have not any information about the current size that we should
+                // display in the notification text we need to fetch it again...
+                if (size == -1) {
+                    if (mPrefGroupBySignalStrength && mSignalStrengthGroup != null) {
+                        size = mSignalStrengthGroup.iGoodCount;
+                    } else {
+                        size = mContainer.size();
+                    }
+                }
+                if (mScannIsRunning && size > 0) {
+                    String txt = String.format(mNotifyTextAddon, size) + " " + mNotifyTextScanning;
+                    mBuilder.setContentText(txt);
+                    notify = true;//force || !mKeyguardManager.isKeyguardLocked();
+                    mNotifyCanBeReset = true;
+                } else {
+                    if (mNotifyCanBeReset) {
+                        mNotifyCanBeReset = false;
+                        if (mScannIsRunning) {
+                            mBuilder.setContentText(mNotifyTextScanning);
+                        } else {
+                            if (mHasScanPermission) {
+                                mBuilder.setContentText(getText(R.string.app_service_msgOff));
+                            } else {
+                                mBuilder.setContentText(getText(R.string.app_service_msgOffNoPermissions));
+                            }
+                        }
+                        mBuilder.setStyle(null);
+                        notify = true;
+                    }
+                }
+            } else if (mShowBtIsOffWarning && mShowLocWarn) {
+                mBuilder.setContentText(getText(R.string.app_service_msgNoBoth));
+                notify = true;
+            } else if (mShowBtIsOffWarning) {
+                mBuilder.setContentText(getText(R.string.app_service_msgNoBt));
+                notify = true;
+            } else if (mShowLocWarn) {
+                mBuilder.setContentText(getText(R.string.app_service_msgNoLocation));
+                notify = true;
+            }
+        }
+
+        if (notify) {
+            if (mNotificationManager == null) {
+                mNotificationManager = NotificationManagerCompat.from(this);
+            }
+            mBuilder.setVisibility(NotificationCompat.VISIBILITY_PUBLIC);
+            mBuilder.setShowWhen(true);
+            mBuilder.setWhen(System.currentTimeMillis());
+            mNotificationManager.notify(R.id.notify_backservive, mBuilder.build());
+        }
+    }
+
+    /*private void trace() {
+        Log.w(LOG_TAG, "------------------------------------");
+        Log.w(LOG_TAG, "Update Notification... -> ");
+        StackTraceElement[] trace = Thread.currentThread().getStackTrace();
+        for (StackTraceElement t : trace) {
+            Log.w(LOG_TAG, t.toString());
+        }
+    }*/
+
+    public SignalStrengthGroupInfo[] getSignalStrengthGroupInfo() {
+        if (mSignalStrengthGroup != null) {
+            return mSignalStrengthGroup.getGroupSizeInfo();
+        }
+        return null;
+    }
+
+    public int[] getBeaconCountByType() {
+        ensureScanModeSet();
+        switch (mPrefScanMode) {
+            default:
+            case "ENF":
+                if (mSignalStrengthGroup != null) {
+                    return new int[]{mTotalSize, mSignalStrengthGroup.iGoodCount, -1};
+                } else {
+                    return new int[]{mTotalSize, mContainer.size(), -1};
+                }
+
+            case "FRA":
+                if (mSignalStrengthGroup != null) {
+                    return new int[]{mTotalSize, -1, mSignalStrengthGroup.iGoodCount};
+                } else {
+                    return new int[]{mTotalSize, -1, mContainer.size()};
+                }
+
+            case "ENF_FRA":
+                return getBeaconCountSplitByType();
+        }
+    }
+
+    private int[] getBeaconCountSplitByType() {
+        int sizeENF = 0;
+        int sizeSCF = 0;
+        // grrrr we might need to filter here again by the signalStrength in order to get a valid
+        // total count of beacons per type
+        int thresholdFilterValue = -1000;
+        if (mPrefUseThreshold) {
+            thresholdFilterValue = -1 * Integer.parseInt(mPrefThresholdValAsString);
+        }
+        synchronized (mContainer) {
+            for (UUIDFD6FBeacon b : mContainer.values()) {
+                if (acceptSignalStrength(b, thresholdFilterValue)) {
+                    //int neededToBeValidStatement = b.isENF ? sizeENF++ : sizeSCF++;
+                    if (b.isENF) {
+                        sizeENF++;
+                    } else {
+                        sizeSCF++;
+                    }
+                }
+            }
+        }
+        return new int[]{mTotalSize, sizeENF, sizeSCF};
+    }
+
+    private boolean acceptSignalStrength(UUIDFD6FBeacon beacon, int thresholdFilterValue) {
+        return thresholdFilterValue == -1000 || beacon.mLatestSignalStrength >= thresholdFilterValue;
+    }
+
+    private void startScreenStateObserver() {
+        if (mScreenOnOffReceiver == null) {
+            IntentFilter filter = new IntentFilter(Intent.ACTION_SCREEN_ON);
+            filter.addAction(Intent.ACTION_SCREEN_OFF);
+            mScreenOnOffReceiver = new BroadcastReceiver() {
+                @Override
+                public void onReceive(Context context, Intent intent) {
+                    String action = intent.getAction();
+                    if (Intent.ACTION_SCREEN_ON.equals(action)) {
+                        if (mScanCallback != null) {
+                            mScanCallback.mDisplayIsOn = true;
+                        }
+                        new NotificationUpdateTask().execute();
+                    } else if (Intent.ACTION_SCREEN_OFF.equals(action)) {
+                        if (mScanCallback != null) {
+                            mScanCallback.mDisplayIsOn = false;
+                        }
+                    }
+                }
+            };
+            registerReceiver(mScreenOnOffReceiver, filter);
+        }
+    }
+
+    private void startDeviceBluetoothStatusObserver() {
+        if (mBluetoothStateReceiver == null) {
+            mBluetoothStateReceiver = new BroadcastReceiver() {
+                private int lastState = -1;
+                private boolean autoEnabledBTCauseTurnedOffTriggered = false;
+                private boolean bTLEInitStarted = false;
+
+                @Override
+                public void onReceive(Context context, Intent intent) {
+                    final String action = intent.getAction();
+                    if (action.equals(BluetoothAdapter.ACTION_STATE_CHANGED)) {
+                        final int state = intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.ERROR);
+                        switch (state) {
+                            case BluetoothAdapter.STATE_OFF:
+                                Log.d(LOG_TAG, "New Bluetooth 'STATE_OFF' =" + state + " [" + lastState + "]");
+                                break;
+                            case BluetoothAdapter.STATE_ON:
+                                Log.d(LOG_TAG, "New Bluetooth 'STATE_ON' =" + state + " [" + lastState + "]");
+                                break;
+                            case 15:
+                                Log.d(LOG_TAG, "New Bluetooth 'STATE_BLE_ON' =" + state + " [" + lastState + "]");
+                                break;
+                            case BluetoothAdapter.STATE_TURNING_ON:
+                                Log.d(LOG_TAG, "New Bluetooth 'STATE_TURNING_ON' =" + state + " [" + lastState + "]");
+                                break;
+                            case 14:
+                                Log.d(LOG_TAG, "New Bluetooth 'STATE_BLE_TURNING_ON' =" + state + " [" + lastState + "]");
+                                break;
+                            case BluetoothAdapter.STATE_TURNING_OFF:
+                                Log.d(LOG_TAG, "New Bluetooth 'STATE_TURNING_OFF' =" + state + " [" + lastState + "]");
+                                break;
+                        }
+
+                        if (lastState != state) {
+                            lastState = state;
+                            switch (state) {
+                                case BluetoothAdapter.STATE_OFF:
+                                    bTLEInitStarted = false;
+                                    if (mBluetoothAdapter != null) {
+                                        mShowBtIsOffWarning = true;
+                                        // cancel all running processes...
+                                        try {
+                                            mBluetoothAdapter.cancelDiscovery();
+                                        } catch (Throwable t) {
+                                            Log.d(LOG_TAG, "", t);
+                                        }
+                                        stopScan(false);
+                                        updateNotification();
+                                        if (mGuiCallback != null) {
+                                            mGuiCallback.newBeconEvent(null, -1, -1, -1, null);
+                                        }
+                                        if (!isAirplaneMode()) {
+                                            if (mPrefs.getBoolean(R.string.PKEY_AUTOSTARTBLUETOOTH, R.string.DVAL_AUTOSTARTBLUETOOTH)) {
+                                                if (!autoEnabledBTCauseTurnedOffTriggered) {
+                                                    autoEnabledBTCauseTurnedOffTriggered = true;
+
+                                                    // autorestart BT in 5 seconds...
+                                                    if (mHandler != null) {
+                                                        mHandler.postDelayed(() -> mBluetoothAdapter.enable(), 5000);
+                                                    } else {
+                                                        mBluetoothAdapter.enable();
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                    break;
+
+                                case BluetoothAdapter.STATE_ON:
+                                case 15 /*BluetoothAdapter.STATE_BLE_ON*/:
+                                    autoEnabledBTCauseTurnedOffTriggered = false;
+                                    mShowBtIsOffWarning = false;
+                                    if (!bTLEInitStarted) {
+                                        bTLEInitStarted = true;
+                                        ensureAdapterAndScannerInit();
+                                        mScannIsRunning = false;
+                                        startScan(false);
+                                        updateNotification();
+                                        if (mGuiCallback != null) {
+                                            mGuiCallback.newBeconEvent(null, -1, -1, -1, null);
+                                        }
+                                    }
+                                    break;
+
+                                case BluetoothAdapter.STATE_TURNING_ON:
+                                    break;
+
+                                case BluetoothAdapter.STATE_TURNING_OFF:
+                                    break;
+                            }
+                        }
+                    }
+                }
+            };
+            IntentFilter filter = new IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED);
+            registerReceiver(mBluetoothStateReceiver, filter);
+        }
+
+        if (mBluetoothAdapter != null) {
+            if (!mBluetoothAdapter.isEnabled()) {
+                mShowBtIsOffWarning = true;
+                if (!isAirplaneMode()) {
+                    if (mPrefs.getBoolean(R.string.PKEY_AUTOSTARTBLUETOOTH, R.string.DVAL_AUTOSTARTBLUETOOTH)) {
+                        mBluetoothAdapter.enable();
+                    }
+                }
+            }
+        }
+    }
+
+    private void startLocationProviderStatusObserver() {
+        if (mLocationProviderStateReceiver == null) {
+            mLocationProviderStateReceiver = new BroadcastReceiver() {
+                boolean iState = isLocationProviderEnabled();
+
+                @Override
+                public void onReceive(Context context, Intent intent) {
+                    final String action = intent.getAction();
+                    if (action != null && action.equals(LocationManager.PROVIDERS_CHANGED_ACTION)) {
+                        if (intent.hasExtra(LocationManager.EXTRA_PROVIDER_ENABLED) && intent.hasExtra(LocationManager.EXTRA_PROVIDER_NAME)) {
+                            boolean enabled = intent.getBooleanExtra(LocationManager.EXTRA_PROVIDER_ENABLED, false);
+                            if (iState != enabled) {
+                                if (enabled) {
+                                    Log.w(LOG_TAG, "Location is enabled - call checkForScanStart(...)");
+                                    checkForScanStart(2500);
+                                } else {
+                                    Log.w(LOG_TAG, "Location is disabled");
+                                }
+                                updateNotification();
+                                if (mGuiCallback != null) {
+                                    mGuiCallback.newBeconEvent(null, -1, -1, -1, null);
+                                }
+                            }
+                            iState = enabled;
+                        }
+                    }
+                }
+            };
+            IntentFilter filter = new IntentFilter(LocationManager.PROVIDERS_CHANGED_ACTION);
+            registerReceiver(mLocationProviderStateReceiver, filter);
+        }
+    }
+
+    public class LocalBinder extends Binder {
+        public ScannerService getServerInstance() {
+            return ScannerService.this;
         }
     }
 
@@ -825,18 +1245,6 @@ public class ScannerService extends Service implements SharedPreferences.OnShare
         }
     }
 
-    private ScanRestarter mScanRestarter = null;
-
-    private void triggerRestartScanCauseOfPrefChange() {
-        if (mScanRestarter == null) {
-            mScanRestarter = new ScanRestarter();
-            mScanRestarter.start();
-        }
-        if (mScanRestarter != null) {
-            mScanRestarter.iStartTime = System.currentTimeMillis();
-        }
-    }
-
     private class ScanRestarter extends Thread {
         private long iStartTime = System.currentTimeMillis();
 
@@ -868,205 +1276,6 @@ public class ScannerService extends Service implements SharedPreferences.OnShare
             }
         }
     }
-
-    private CharSequence mNotifyTextScanning;
-    private String mNotifyTextAddon;
-    private NotificationCompat.Builder mBuilder;
-
-    private NotificationCompat.Builder getNotificationBuilder() {
-        // http://developer.android.com/guide/topics/ui/notifiers/notifications.html
-        if (mNotifyTextScanning == null) {
-            mNotifyTextScanning = getText(R.string.app_service_msgScan1);
-            mNotifyTextAddon = getString(R.string.app_service_msgScan2);
-        }
-
-        String channelId = NotificationHelper.getBaseNotificationChannelId(this);
-        NotificationCompat.Builder builder = new NotificationCompat.Builder(this, channelId);
-        builder.setContentTitle(getText(R.string.app_service_title));
-
-        builder.setVisibility(NotificationCompat.VISIBILITY_PUBLIC);
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-            builder.setChannelId(channelId);
-        }
-        if (android.os.Build.VERSION.SDK_INT >= 21) {
-            builder.setSmallIcon(R.drawable.ic_app_notify72);
-        } else {
-            builder.setSmallIcon(R.mipmap.ic_launcher);
-        }
-        Intent intent = new Intent(this, ScannerActivity.class);
-        intent.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP);
-        intent.putExtra(ScannerActivity.INTENT_EXTRA_SERVICE_ACTION, true);
-        builder.setContentIntent(PendingIntent.getActivity(this, intent.hashCode(), intent, PendingIntent.FLAG_CANCEL_CURRENT));
-
-        boolean mShowLocWarn = !isLocationProviderEnabled();
-
-        if (!mShowBtIsOffWarning && !mShowLocWarn) {
-            if (mScannIsRunning) {
-                builder.setContentText(mNotifyTextScanning);
-                builder.addAction(-1, this.getString(R.string.menu_stop_notify_action), getServiceIntent(INTENT_EXTRA_STOP));
-            } else {
-                if (checkScanPermissions() && mHasScanPermission) {
-                    builder.setContentText(getString(R.string.app_service_msgOff));
-                    // Check 'start scan' from notification action can cause no scan results after
-                    //  the start / this will not happen, if scan is triggered via Activity (no clue yet why)
-                    // logcat reports:
-                    // E/BluetoothUtils: Permission denial: Need ACCESS_FINE_LOCATION permission to get scan results
-                    //
-                    // wtf?!
-                    builder.addAction(-1, this.getString(R.string.menu_start_notify_action), getServiceIntent(INTENT_EXTRA_START));
-                } else {
-                    builder.setContentText(getText(R.string.app_service_msgOffNoPermissions));
-                }
-            }
-        }else if(mShowBtIsOffWarning && mShowLocWarn){
-            builder.setContentText(getString(R.string.app_service_msgNoBoth));
-            builder.addAction(-1, this.getString(R.string.menu_start_both_action), getServiceIntent(INTENT_EXTRA_STARTBOTH));
-        }else if(mShowBtIsOffWarning){
-            builder.setContentText(getString(R.string.app_service_msgNoBt));
-            builder.addAction(-1, this.getString(R.string.menu_start_bt_action), getServiceIntent(INTENT_EXTRA_STARTBT));
-        }else if(mShowLocWarn){
-            builder.setContentText(getString(R.string.app_service_msgNoLocation));
-            builder.addAction(-1, this.getString(R.string.menu_start_location_action), getServiceIntent(INTENT_EXTRA_STARTLOC));
-        }
-
-        if (android.os.Build.VERSION.SDK_INT > Build.VERSION_CODES.M) {
-            builder.addAction(R.drawable.ic_outline_exit_to_app_24px, this.getString(R.string.menu_exit_notify_action), getTerminateAppIntent(ScannerActivity.INTENT_EXTRA_TERMINATE_APP));
-        } else {
-            builder.addAction(R.drawable.ic_outline_exit_to_app_24px_api20, this.getString(R.string.menu_exit_notify_action), getTerminateAppIntent(ScannerActivity.INTENT_EXTRA_TERMINATE_APP));
-        }
-        builder.setColor(ContextCompat.getColor(this, R.color.notification_action));
-        return builder;
-    }
-
-    private void showNotification() {
-        try {
-            mBuilder = getNotificationBuilder();
-            startForeground(R.id.notify_backservive, mBuilder.build());
-        } catch (SecurityException e) {
-            e.printStackTrace();
-        } catch (Throwable t) {
-            t.printStackTrace();
-        }
-    }
-
-    private PendingIntent getAppIntent(String extra) {
-        Intent intent = new Intent(this, ScannerActivity.class);
-        intent.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP);
-        if (extra != null) {
-            intent.putExtra(extra, true);
-        }
-        return PendingIntent.getActivity(this, intent.hashCode(), intent, PendingIntent.FLAG_CANCEL_CURRENT);
-    }
-
-    private PendingIntent getServiceIntent(String extra) {
-        Intent intent = new Intent(this, ScannerService.class);
-        if (extra != null) {
-            intent.putExtra(extra, true);
-        }
-        return PendingIntent.getService(this, intent.hashCode(), intent, PendingIntent.FLAG_UPDATE_CURRENT);
-    }
-
-    private PendingIntent getTerminateAppIntent(String extra) {
-        Intent intent = new Intent(this, ScannerActivity.class);
-        intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP);
-        if (extra != null) {
-            intent.putExtra(extra, true);
-        }
-        return PendingIntent.getActivity(this, intent.hashCode(), intent, PendingIntent.FLAG_CANCEL_CURRENT);
-    }
-
-    private KeyguardManager mKeyguardManager = null;
-    private NotificationManagerCompat mNotificationManager = null;
-    private boolean mNotifyCanBeReset = false;
-
-    public void updateNotification() {
-        try {
-            mBuilder = getNotificationBuilder();
-            if (mNotificationManager == null) {
-                mNotificationManager = NotificationManagerCompat.from(this);
-            }
-            mBuilder.setVisibility(NotificationCompat.VISIBILITY_PUBLIC);
-            mBuilder.setShowWhen(true);
-            mBuilder.setWhen(System.currentTimeMillis());
-            mNotificationManager.notify(R.id.notify_backservive, mBuilder.build());
-        } catch (Throwable t) {
-            Log.d(LOG_TAG, "" + t.getMessage());
-        }
-    }
-
-    private void updateNotificationText(boolean force, int size) {
-        if (mKeyguardManager == null) {
-            mKeyguardManager = (KeyguardManager) getSystemService(Context.KEYGUARD_SERVICE);
-        }
-        boolean notify = false;
-        if (mBuilder != null) {
-            boolean mShowLocWarn = !isLocationProviderEnabled();
-            if (!mShowBtIsOffWarning && !mShowLocWarn) {
-                // if we have not any information about the current size that we should
-                // display in the notification text we need to fetch it again...
-                if (size == -1) {
-                    if (mPrefGroupBySignalStrength && mSignalStrengthGroup != null) {
-                        size = mSignalStrengthGroup.iGoodCount;
-                    } else {
-                        size = mContainer.size();
-                    }
-                }
-                if (mScannIsRunning && size > 0) {
-                    String txt = String.format(mNotifyTextAddon, size) + " " + mNotifyTextScanning;
-                    mBuilder.setContentText(txt);
-                    notify = true;//force || !mKeyguardManager.isKeyguardLocked();
-                    mNotifyCanBeReset = true;
-                } else {
-                    if (mNotifyCanBeReset) {
-                        mNotifyCanBeReset = false;
-                        if (mScannIsRunning) {
-                            mBuilder.setContentText(mNotifyTextScanning);
-                        } else {
-                            if (mHasScanPermission) {
-                                mBuilder.setContentText(getText(R.string.app_service_msgOff));
-                            } else {
-                                mBuilder.setContentText(getText(R.string.app_service_msgOffNoPermissions));
-                            }
-                        }
-                        mBuilder.setStyle(null);
-                        notify = true;
-                    }
-                }
-            }else if(mShowBtIsOffWarning && mShowLocWarn){
-                mBuilder.setContentText(getText(R.string.app_service_msgNoBoth));
-                notify = true;
-            }else if (mShowBtIsOffWarning) {
-                mBuilder.setContentText(getText(R.string.app_service_msgNoBt));
-                notify = true;
-            } else if(mShowLocWarn) {
-                mBuilder.setContentText(getText(R.string.app_service_msgNoLocation));
-                notify = true;
-            }
-        }
-
-        if (notify) {
-            if (mNotificationManager == null) {
-                mNotificationManager = NotificationManagerCompat.from(this);
-            }
-            mBuilder.setVisibility(NotificationCompat.VISIBILITY_PUBLIC);
-            mBuilder.setShowWhen(true);
-            mBuilder.setWhen(System.currentTimeMillis());
-            mNotificationManager.notify(R.id.notify_backservive, mBuilder.build());
-        }
-    }
-
-    /*private void trace() {
-        Log.w(LOG_TAG, "------------------------------------");
-        Log.w(LOG_TAG, "Update Notification... -> ");
-        StackTraceElement[] trace = Thread.currentThread().getStackTrace();
-        for (StackTraceElement t : trace) {
-            Log.w(LOG_TAG, t.toString());
-        }
-    }*/
-
-    protected HashMap<String, UUIDFD6FBeacon> mContainer = new HashMap<>();
-    protected SignalStrengthCollection mSignalStrengthGroup = null;
-    private int mTotalSize = 0;
 
     private class MySimpleTimer extends Thread {
         private volatile long iLastScanEvent = 0;
@@ -1118,64 +1327,6 @@ public class ScannerService extends Service implements SharedPreferences.OnShare
                 Log.v(LOG_TAG, "MySimpleTimer ended");
             }
         }
-    }
-
-    public SignalStrengthGroupInfo[] getSignalStrengthGroupInfo() {
-        if (mSignalStrengthGroup != null) {
-            return mSignalStrengthGroup.getGroupSizeInfo();
-        }
-        return null;
-    }
-
-    public int[] getBeaconCountByType() {
-        ensureScanModeSet();
-        switch (mPrefScanMode) {
-            default:
-            case "ENF":
-                if (mSignalStrengthGroup != null) {
-                    return new int[]{mTotalSize, mSignalStrengthGroup.iGoodCount, -1};
-                } else {
-                    return new int[]{mTotalSize, mContainer.size(), -1};
-                }
-
-            case "FRA":
-                if (mSignalStrengthGroup != null) {
-                    return new int[]{mTotalSize, -1, mSignalStrengthGroup.iGoodCount};
-                } else {
-                    return new int[]{mTotalSize, -1, mContainer.size()};
-                }
-
-            case "ENF_FRA":
-                return getBeaconCountSplitByType();
-        }
-    }
-
-    private int[] getBeaconCountSplitByType() {
-        int sizeENF = 0;
-        int sizeSCF = 0;
-        // grrrr we might need to filter here again by the signalStrength in order to get a valid
-        // total count of beacons per type
-        int thresholdFilterValue = -1000;
-        if (mPrefUseThreshold) {
-            thresholdFilterValue = -1 * Integer.parseInt(mPrefThresholdValAsString);
-        }
-        synchronized (mContainer) {
-            for (UUIDFD6FBeacon b : mContainer.values()) {
-                if (acceptSignalStrength(b, thresholdFilterValue)) {
-                    //int neededToBeValidStatement = b.isENF ? sizeENF++ : sizeSCF++;
-                    if (b.isENF) {
-                        sizeENF++;
-                    } else {
-                        sizeSCF++;
-                    }
-                }
-            }
-        }
-        return new int[]{mTotalSize, sizeENF, sizeSCF};
-    }
-
-    private boolean acceptSignalStrength(UUIDFD6FBeacon beacon, int thresholdFilterValue) {
-        return thresholdFilterValue == -1000 || beacon.mLatestSignalStrength >= thresholdFilterValue;
     }
 
     private class RssiRange implements Comparable {
@@ -1266,9 +1417,9 @@ public class ScannerService extends Service implements SharedPreferences.OnShare
     }
 
     private class MyScanCallback extends ScanCallback {
-        private long iLastContainerCheckTs = 0;
         public boolean mDoReport = false;
         public boolean mDisplayIsOn = true;
+        private long iLastContainerCheckTs = 0;
         private long iLastTs = 0;
         private MySimpleTimer iTimoutTimer = null;
         private ParcelUuid mScanUUID = FD6F_UUID;
@@ -1365,14 +1516,15 @@ public class ScannerService extends Service implements SharedPreferences.OnShare
                 beacon = mContainer.get(addr);
                 if (beacon == null) {
                     beacon = new UUIDFD6FBeacon(addr, tsNow, isDF6F);
+                    beacon.toDB().insert();
                     mContainer.put(addr, beacon);
                     mTotalSize++;
                     // if we add an new id, we instantly check for
                     // possible expired ones...
                     delay = 0;
-                    if (BuildConfig.DEBUG) {
+                    /* if (BuildConfig.DEBUG) {
                         mDoReport = true;
-                    }
+                    } */
                 }
 
                 // check every x sec if there are expired Beacons in our store?
@@ -1546,172 +1698,6 @@ public class ScannerService extends Service implements SharedPreferences.OnShare
         protected Void doInBackground(Void... voids) {
             updateNotificationText(true, -1);
             return null;
-        }
-    }
-
-    private void startScreenStateObserver() {
-        if (mScreenOnOffReceiver == null) {
-            IntentFilter filter = new IntentFilter(Intent.ACTION_SCREEN_ON);
-            filter.addAction(Intent.ACTION_SCREEN_OFF);
-            mScreenOnOffReceiver = new BroadcastReceiver() {
-                @Override
-                public void onReceive(Context context, Intent intent) {
-                    String action = intent.getAction();
-                    if (Intent.ACTION_SCREEN_ON.equals(action)) {
-                        if (mScanCallback != null) {
-                            mScanCallback.mDisplayIsOn = true;
-                        }
-                        new NotificationUpdateTask().execute();
-                    } else if (Intent.ACTION_SCREEN_OFF.equals(action)) {
-                        if (mScanCallback != null) {
-                            mScanCallback.mDisplayIsOn = false;
-                        }
-                    }
-                }
-            };
-            registerReceiver(mScreenOnOffReceiver, filter);
-        }
-    }
-
-    private void startDeviceBluetoothStatusObserver() {
-        if (mBluetoothStateReceiver == null) {
-            mBluetoothStateReceiver = new BroadcastReceiver() {
-                private int lastState = -1;
-                private boolean autoEnabledBTCauseTurnedOffTriggered = false;
-                private boolean bTLEInitStarted = false;
-
-                @Override
-                public void onReceive(Context context, Intent intent) {
-                    final String action = intent.getAction();
-                    if (action.equals(BluetoothAdapter.ACTION_STATE_CHANGED)) {
-                        final int state = intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.ERROR);
-                        switch (state) {
-                            case BluetoothAdapter.STATE_OFF:
-                                Log.d(LOG_TAG, "New Bluetooth 'STATE_OFF' =" + state + " [" + lastState + "]");
-                                break;
-                            case BluetoothAdapter.STATE_ON:
-                                Log.d(LOG_TAG, "New Bluetooth 'STATE_ON' =" + state + " [" + lastState + "]");
-                                break;
-                            case 15:
-                                Log.d(LOG_TAG, "New Bluetooth 'STATE_BLE_ON' =" + state + " [" + lastState + "]");
-                                break;
-                            case BluetoothAdapter.STATE_TURNING_ON:
-                                Log.d(LOG_TAG, "New Bluetooth 'STATE_TURNING_ON' =" + state + " [" + lastState + "]");
-                                break;
-                            case 14:
-                                Log.d(LOG_TAG, "New Bluetooth 'STATE_BLE_TURNING_ON' =" + state + " [" + lastState + "]");
-                                break;
-                            case BluetoothAdapter.STATE_TURNING_OFF:
-                                Log.d(LOG_TAG, "New Bluetooth 'STATE_TURNING_OFF' =" + state + " [" + lastState + "]");
-                                break;
-                        }
-
-                        if (lastState != state) {
-                            lastState = state;
-                            switch (state) {
-                                case BluetoothAdapter.STATE_OFF:
-                                    bTLEInitStarted = false;
-                                    if (mBluetoothAdapter != null) {
-                                        mShowBtIsOffWarning = true;
-                                        // cancel all running processes...
-                                        try {
-                                            mBluetoothAdapter.cancelDiscovery();
-                                        } catch (Throwable t) {
-                                            Log.d(LOG_TAG, "", t);
-                                        }
-                                        stopScan(false);
-                                        updateNotification();
-                                        if (mGuiCallback != null) {
-                                            mGuiCallback.newBeconEvent(null, -1, -1, -1, null);
-                                        }
-                                        if (!isAirplaneMode()) {
-                                            if (mPrefs.getBoolean(R.string.PKEY_AUTOSTARTBLUETOOTH, R.string.DVAL_AUTOSTARTBLUETOOTH)) {
-                                                if (!autoEnabledBTCauseTurnedOffTriggered) {
-                                                    autoEnabledBTCauseTurnedOffTriggered = true;
-
-                                                    // autorestart BT in 5 seconds...
-                                                    if (mHandler != null) {
-                                                        mHandler.postDelayed(() -> mBluetoothAdapter.enable(), 5000);
-                                                    } else {
-                                                        mBluetoothAdapter.enable();
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                    break;
-
-                                case BluetoothAdapter.STATE_ON:
-                                case 15 /*BluetoothAdapter.STATE_BLE_ON*/:
-                                    autoEnabledBTCauseTurnedOffTriggered = false;
-                                    mShowBtIsOffWarning = false;
-                                    if (!bTLEInitStarted) {
-                                        bTLEInitStarted = true;
-                                        ensureAdapterAndScannerInit();
-                                        mScannIsRunning = false;
-                                        startScan(false);
-                                        updateNotification();
-                                        if (mGuiCallback != null) {
-                                            mGuiCallback.newBeconEvent(null, -1, -1, -1, null);
-                                        }
-                                    }
-                                    break;
-
-                                case BluetoothAdapter.STATE_TURNING_ON:
-                                    break;
-
-                                case BluetoothAdapter.STATE_TURNING_OFF:
-                                    break;
-                            }
-                        }
-                    }
-                }
-            };
-            IntentFilter filter = new IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED);
-            registerReceiver(mBluetoothStateReceiver, filter);
-        }
-
-        if (mBluetoothAdapter != null) {
-            if (!mBluetoothAdapter.isEnabled()) {
-                mShowBtIsOffWarning = true;
-                if (!isAirplaneMode()) {
-                    if (mPrefs.getBoolean(R.string.PKEY_AUTOSTARTBLUETOOTH, R.string.DVAL_AUTOSTARTBLUETOOTH)) {
-                        mBluetoothAdapter.enable();
-                    }
-                }
-            }
-        }
-    }
-
-    private void startLocationProviderStatusObserver() {
-        if (mLocationProviderStateReceiver == null) {
-            mLocationProviderStateReceiver = new BroadcastReceiver() {
-                boolean iState = isLocationProviderEnabled();
-                @Override
-                public void onReceive(Context context, Intent intent) {
-                    final String action = intent.getAction();
-                    if (action != null && action.equals(LocationManager.PROVIDERS_CHANGED_ACTION)) {
-                        if (intent.hasExtra(LocationManager.EXTRA_PROVIDER_ENABLED) && intent.hasExtra(LocationManager.EXTRA_PROVIDER_NAME)) {
-                            boolean enabled = intent.getBooleanExtra(LocationManager.EXTRA_PROVIDER_ENABLED, false);
-                            if(iState != enabled) {
-                                if (enabled) {
-                                    Log.w(LOG_TAG, "Location is enabled - call checkForScanStart(...)");
-                                    checkForScanStart(2500);
-                                } else {
-                                    Log.w(LOG_TAG, "Location is disabled");
-                                }
-                                updateNotification();
-                                if (mGuiCallback != null) {
-                                    mGuiCallback.newBeconEvent(null, -1, -1, -1, null);
-                                }
-                            }
-                            iState = enabled;
-                        }
-                    }
-                }
-            };
-            IntentFilter filter = new IntentFilter(LocationManager.PROVIDERS_CHANGED_ACTION);
-            registerReceiver(mLocationProviderStateReceiver, filter);
         }
     }
 }

@@ -3,13 +3,18 @@
     package="com.emacberry.uuid0xfd6fscan">
 
     <uses-feature android:name="android.hardware.bluetooth" />
-    <uses-feature android:name="android.hardware.bluetooth_le" android:required="true" />
+    <uses-feature
+        android:name="android.hardware.bluetooth_le"
+        android:required="true" />
 
-    <uses-permission android:name="android.permission.BLUETOOTH" android:required="true" />
-    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:required="true" />
+    <uses-permission
+        android:name="android.permission.BLUETOOTH"
+        android:required="true" />
+    <uses-permission
+        android:name="android.permission.BLUETOOTH_ADMIN"
+        android:required="true" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
-    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
-    <!-- uses-permission android:name="android.permission.INTERNET" / -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" /> <!-- uses-permission android:name="android.permission.INTERNET" / -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
@@ -21,22 +26,24 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/AppTheme">
+        <activity android:name=".UUIDActivity"></activity>
 
         <receiver
-            android:name="com.emacberry.uuid0xfd6fscan.BootUpReceiver"
+            android:name=".BootUpReceiver"
             android:enabled="true"
             android:permission="android.permission.RECEIVE_BOOT_COMPLETED">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
+
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </receiver>
 
         <service
-            android:name="com.emacberry.uuid0xfd6fscan.ScannerService"
+            android:name=".ScannerService"
+            android:directBootAware="true"
             android:enabled="true"
             android:exported="false"
-            android:directBootAware="true"
             android:foregroundServiceType="location"
             android:label="UUID0xFD6FTracer Service">
             <intent-filter>
@@ -45,22 +52,22 @@
         </service>
 
         <activity
-            android:name="com.emacberry.uuid0xfd6fscan.SettingsActivity"
+            android:name=".SettingsActivity"
             android:configChanges="uiMode|orientation|keyboard|keyboardHidden|screenSize|screenLayout"
-            android:parentActivityName="com.emacberry.uuid0xfd6fscan.ScannerActivity">
+            android:parentActivityName=".ScannerActivity">
             <meta-data
                 android:name="android.support.PARENT_ACTIVITY"
                 android:value="com.emacberry.uuid0xfd6fscan.ScannerActivity" />
         </activity>
-
         <activity
-            android:name="com.emacberry.uuid0xfd6fscan.ScannerActivity"
+            android:name=".ScannerActivity"
             android:configChanges="uiMode|orientation|keyboard|keyboardHidden|screenSize|screenLayout"
             android:label="@string/app_name"
             android:launchMode="singleTask"
             android:showWhenLocked="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
+
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
