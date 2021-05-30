@@ -15,6 +15,9 @@ public interface UUIDBeaconDao {
     @Query("SELECT * FROM UUIDBeacon")
     List<UUIDBeacon> getAll();
 
+    @Query("DELETE FROM UUIDBeacon")
+    void deleteAll();
+
     @Query("SELECT COUNT(uuid) FROM UUIDBeacon")
     int count();
 

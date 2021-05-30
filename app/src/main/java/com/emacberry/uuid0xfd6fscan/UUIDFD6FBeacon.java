@@ -13,11 +13,31 @@ public class UUIDFD6FBeacon {
     public int mTxPowerLevel;
     public int mTxPower;
     public String addr;
+    public String alias;
+    public int bondState;
+    public String name;
+    public int type;
+    public int bluetoothClassContents;
+    public int deviceClass;
+    public int majorDeviceClass;
     public long mLastTs;
     public int mLatestSignalStrength;
     public TreeMap<Long, Integer> sigHistory = new TreeMap<>();
     public HashSet<String> data = new HashSet<>();
     public boolean isENF;
+
+    public UUIDFD6FBeacon(String addr, String alias, int bondState, String name, int type, int bluetoothClassContents, int deviceClass, int majorDeviceClass, long mLastTs, boolean isENF) {
+        this.addr = addr;
+        this.alias = alias;
+        this.bondState = bondState;
+        this.name = name;
+        this.type = type;
+        this.bluetoothClassContents = bluetoothClassContents;
+        this.deviceClass = deviceClass;
+        this.majorDeviceClass = majorDeviceClass;
+        this.mLastTs = mLastTs;
+        this.isENF = isENF;
+    }
 
     public UUIDFD6FBeacon(String addr, long ts, boolean isENF) {
         this.addr = addr;
@@ -70,7 +90,7 @@ public class UUIDFD6FBeacon {
     }
 
     public UUIDBeacon toDB() {
-        return new UUIDBeacon(addr, mLastTs, mLatestSignalStrength, isENF, mTxPowerLevel, mTxPower);
+        return new UUIDBeacon(addr, mLastTs, mLatestSignalStrength, isENF, mTxPowerLevel, mTxPower, alias, bondState, name, type, bluetoothClassContents, deviceClass, majorDeviceClass);
     }
 
 }

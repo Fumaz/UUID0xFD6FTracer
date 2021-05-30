@@ -6,7 +6,6 @@ import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.TextView;
-import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.RecyclerView;
@@ -15,7 +14,6 @@ import com.emacberry.uuid0xfd6fscan.db.UUIDBeacon;
 
 import org.jetbrains.annotations.NotNull;
 
-import java.time.format.DateTimeFormatter;
 import java.util.List;
 
 public class UUIDViewAdapter extends RecyclerView.Adapter<UUIDViewAdapter.ViewHolder> {
@@ -42,6 +40,8 @@ public class UUIDViewAdapter extends RecyclerView.Adapter<UUIDViewAdapter.ViewHo
 
         if (ScannerService.isNear(holder.beacon.uuid)) {
             holder.uuidView.setTextColor(Color.MAGENTA);
+        } else {
+            holder.uuidView.setTextColor(Color.WHITE);
         }
     }
 
@@ -62,8 +62,7 @@ public class UUIDViewAdapter extends RecyclerView.Adapter<UUIDViewAdapter.ViewHo
 
         @Override
         public void onClick(View v) {
-            DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
-            Toast.makeText(v.getContext(), beacon.lastScanned.format(formatter), Toast.LENGTH_SHORT).show();
+            beacon.createDialog(v.getContext()).show();
         }
     }
 

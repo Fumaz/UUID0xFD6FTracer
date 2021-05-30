@@ -108,6 +108,10 @@ public class ScannerService extends Service implements SharedPreferences.OnShare
         return appOps.noteOp(op, Binder.getCallingUid(), callingPackage) == AppOpsManager.MODE_ALLOWED;
     }
 
+    public static boolean isNear(String address) {
+        return mContainer.containsKey(address);
+    }
+
     private void initPrefs() {
         PKEY_SCANMODE = getString(R.string.PKEY_SCANMODE);
         PKEY_GROUPBYSIGSTRENGTH = getString(R.string.PKEY_GROUPBYSIGSTRENGTH);
@@ -125,10 +129,6 @@ public class ScannerService extends Service implements SharedPreferences.OnShare
         mPrefUseThreshold = mPrefs.getBoolean(PKEY_USETHRESHOLD, R.string.DVAL_USETHRESHOLD);
         mPrefThresholdValAsString = mPrefs.getString(PKEY_THRESHOLDVAL, R.string.DVAL_THRESHOLDVAL);
         mPrefForceGps = mPrefs.getBoolean(PKEY_FORCEGPS, R.string.DVAL_FORCEGPS);
-    }
-
-    public static boolean isNear(String address) {
-        return mContainer.containsKey(address);
     }
 
     @Override
@@ -1510,7 +1510,7 @@ public class ScannerService extends Service implements SharedPreferences.OnShare
                                    final ScanRecord rec, final long tsNow,
                                    boolean isDF6F, byte[] data) {
             String addr = btDevice.getAddress();
-            UUIDFD6FBeacon beacon = null;
+            UUIDFD6FBeacon beacon;
             int prevContainerSize = mContainer.size();
             synchronized (mContainer) {
                 // check every 30sec by default for outdated beacon
@@ -1518,7 +1518,11 @@ public class ScannerService extends Service implements SharedPreferences.OnShare
                 long delay = 30000;
                 beacon = mContainer.get(addr);
                 if (beacon == null) {
-                    beacon = new UUIDFD6FBeacon(addr, tsNow, isDF6F);
+                    String alias = null;
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                        alias = btDevice.getAlias();
+                    }
+                    beacon = new UUIDFD6FBeacon(addr, alias, btDevice.getBondState(), btDevice.getName(), btDevice.getType(), btDevice.getBluetoothClass().describeContents(), btDevice.getBluetoothClass().getDeviceClass(), btDevice.getBluetoothClass().getMajorDeviceClass(), tsNow, isDF6F);
                     beacon.toDB().insert();
                     mContainer.put(addr, beacon);
                     mTotalSize++;

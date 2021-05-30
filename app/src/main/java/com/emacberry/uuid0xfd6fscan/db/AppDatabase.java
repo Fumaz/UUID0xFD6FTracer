@@ -3,12 +3,13 @@ package com.emacberry.uuid0xfd6fscan.db;
 import android.content.Context;
 
 import androidx.annotation.NonNull;
+import androidx.room.AutoMigration;
 import androidx.room.Database;
 import androidx.room.Room;
 import androidx.room.RoomDatabase;
 import androidx.room.TypeConverters;
 
-@Database(entities = {UUIDBeacon.class}, version = 1)
+@Database(entities = {UUIDBeacon.class}, version = 2)
 @TypeConverters(LocalDateTimeConverter.class)
 public abstract class AppDatabase extends RoomDatabase {
 

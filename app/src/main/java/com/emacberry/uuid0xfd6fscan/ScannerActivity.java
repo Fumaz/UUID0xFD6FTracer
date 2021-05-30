@@ -19,6 +19,7 @@ import android.view.WindowManager;
 import android.widget.Toast;
 
 import androidx.appcompat.app.ActionBar;
+import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.FileProvider;
 import androidx.fragment.app.Fragment;
@@ -44,6 +45,7 @@ public class ScannerActivity extends AppCompatActivity implements SharedPreferen
     private final int MENU_START_STOP = 80;
     private final int MENU_SETTING = 90;
     private final int MENU_EXPORT_DB = 700;
+    private final int MENU_DELETE_DB = 800;
     private final int MENU_FINISH = 900;
     private final int MENU_EXIT = 1000;
     private Handler mHandler = new Handler();
@@ -126,6 +128,7 @@ public class ScannerActivity extends AppCompatActivity implements SharedPreferen
         menu.add(Menu.NONE, MENU_SETTING, Menu.NONE, R.string.menu_settings);
         menu.add(Menu.NONE, MENU_START_STOP, Menu.NONE, R.string.menu_start);
         menu.add(Menu.NONE, MENU_EXPORT_DB, Menu.NONE, "Export DB");
+        menu.add(Menu.NONE, MENU_DELETE_DB, Menu.NONE, "Delete DB");
         menu.add(Menu.NONE, MENU_FINISH, Menu.NONE, R.string.menu_finish);
         menu.add(Menu.NONE, MENU_EXIT, Menu.NONE, R.string.menu_exit);
         return true;
@@ -651,6 +654,28 @@ public class ScannerActivity extends AppCompatActivity implements SharedPreferen
                                 shareDB.putExtra(Intent.EXTRA_TEXT, "Sharing exported DB...");
 
                                 startActivity(Intent.createChooser(shareDB, "Export DB"));
+                                break;
+                            }
+
+                            case MENU_DELETE_DB: {
+                                ScannerActivity.this.runOnUiThread(() -> {
+                                    AlertDialog dialog = new AlertDialog.Builder(ScannerActivity.this)
+                                            .setTitle("Delete DB")
+                                            .setMessage("Are you 100% sure you want to delete the DB?\n" +
+                                                    "This action CANNOT be undone!")
+                                            .setPositiveButton("Delete", (d, a) -> {
+                                                d.dismiss();
+                                                AppDatabase.getInstance().beaconDao().deleteAll();
+                                                Toast.makeText(ScannerActivity.this, "DB Cleared.", Toast.LENGTH_LONG).show();
+                                            })
+                                            .setNegativeButton("Cancel", (d, a) -> {
+                                                d.dismiss();
+                                            })
+                                            .setCancelable(true)
+                                            .create();
+
+                                    dialog.show();
+                                });
                                 break;
                             }
 
